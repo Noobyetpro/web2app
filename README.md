@@ -32,7 +32,7 @@ GoogleApp-win32-x64/
 ├── GoogleApp.exe     ← Your desktop app!
 └── ...
 ```
-
+DON'T DELETE THE DLL AND OTHER FILES/FOLDERS, they are required to run the application. Learn how to create an application setup file with[ Inno Setup](https://jrsoftware.org/isinfo.php)
 ---
 
 ## 🛠 Features
