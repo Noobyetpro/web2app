@@ -1,0 +1,17 @@
+{
+  "name": "web2app-cli",
+  "version": "1.0.1",
+  "description": "CLI to generate Electron .exe apps from any URL",
+  "main": "bin/web2app-cli.js",
+  "bin": {
+    "web2app-cli": "./bin/web2app-cli.js"
+  },
+  "keywords": [
+    "electron",
+    "cli",
+    "builder",
+    "packager"
+  ],
+  "author": "Your Name",
+  "license": "MIT"
+}
