@@ -1,6 +1,6 @@
 {
   "name": "web2app-cli",
-  "version": "1.0.1",
+  "version": "1.0.3",
   "description": "CLI to generate Neutralino apps from any URL",
   "main": "bin/web2app-cli.js",
   "bin": {
