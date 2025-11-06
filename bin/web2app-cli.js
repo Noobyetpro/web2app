@@ -1,100 +1,118 @@
 #!/usr/bin/env node
+/**
+ * web2app-cli.js
+ * Minimal Neutralino app generator from any URL.
+ * Output: web2app/bin/release/<appname>/<appname>.[exe|app|binary]
+ */
 
-const fs = require('fs');
-const path = require('path');
-const { execSync } = require('child_process');
-const { URL } = require('url');
+const fs = require("fs");
+const path = require("path");
+const { execSync } = require("child_process");
+const { URL } = require("url");
+const https = require("https");
+const http = require("http");
 
-// --- Parse args ---
+// -------- CLI args --------
 const args = process.argv.slice(2);
-if (args.length === 0 || !args[0].startsWith('http')) {
-  console.log("❌ Usage: web2app-cli <url> [--icon=icon.ico] [--name=AppName]");
+if (!args[0]) {
+  console.log("Usage: web2app <url> [--icon=icon.png] [--name=AppName]");
   process.exit(1);
 }
 
-let url = args[0];
+let url = args[0].startsWith("http") ? args[0] : "https://" + args[0];
 let iconPath = null;
 let appName = "WebApp";
 
-// --- Validate URL ---
-try {
-  new URL(url);
-} catch (err) {
-  console.error("❌ Invalid URL provided.");
-  process.exit(1);
-}
-
-// --- Handle optional args ---
-args.slice(1).forEach(arg => {
-  if (arg.startsWith('--icon=')) {
-    iconPath = arg.split('=')[1];
-  } else if (arg.startsWith('--name=')) {
-    appName = arg.split('=')[1].replace(/[^a-zA-Z0-9_-]/g, '');
-  }
+args.slice(1).forEach((a) => {
+  if (a.startsWith("--icon=")) iconPath = a.split("=")[1];
+  if (a.startsWith("--name=")) appName = a.split("=")[1].replace(/[^a-zA-Z0-9_-]/g, "") || appName;
 });
 
-// --- Resolve icon path if provided ---
-if (!iconPath) {
-  const fallback = path.join(process.cwd(), 'icon.ico');
-  if (fs.existsSync(fallback)) {
-    iconPath = fallback;
-  } else {
-    console.log("⚠️ No icon provided. Proceeding without a custom icon.");
-  }
-} else {
-  iconPath = path.isAbsolute(iconPath)
-    ? iconPath
-    : path.resolve(process.cwd(), iconPath);
+const binaryName = appName.replace(/\s+/g, "-").toLowerCase();
+new URL(url); // validate
 
-  if (!fs.existsSync(iconPath)) {
-    console.error(`❌ Icon not found at: ${iconPath}`);
-    process.exit(1);
-  }
-}
+// -------- Paths --------
+const appDir = path.join(__dirname, "..", "bin", "release", binaryName);
+const resourcesDir = path.join(appDir, "resources");
+fs.mkdirSync(resourcesDir, { recursive: true });
 
-// --- Prepare Electron app folder ---
-const appDir = path.join(process.cwd(), 'electron-app');
-if (!fs.existsSync(appDir)) fs.mkdirSync(appDir);
-
-// --- Write main.js ---
-fs.writeFileSync(path.join(appDir, 'main.js'), `
-const { app, BrowserWindow } = require('electron');
-function createWindow() {
-  const win = new BrowserWindow({
-    width: 1000,
-    height: 800,
-    webPreferences: { nodeIntegration: false, contextIsolation: true }
-  });
-  win.loadURL('${url}');
-}
-app.whenReady().then(createWindow);
-app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });
-app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });
-`);
-
-// --- Write package.json ---
-fs.writeFileSync(path.join(appDir, 'package.json'), JSON.stringify({
-  name: "web2app-app",
+// -------- Config --------
+const config = {
+  applicationId: `js.neutralino.${binaryName}`,
   version: "1.0.0",
-  main: "main.js"
-}, null, 2));
+  name: appName,
+  defaultMode: "window",
+  url: "/",
+  documentRoot: "/resources/",
+  enableServer: true,
+  enableNativeAPI: false,
+  modes: {
+    window: {
+      title: appName,
+      width: 1000,
+      height: 800
+    }
+  },
+  cli: {
+    resourcesPath: "/resources/",
+    distributionPath: ".",
+    binaryName
+  }
+};
 
-// --- Build the app ---
-console.log("📦 Installing Electron...");
-try {
-  execSync(`npm install --prefix "${appDir}" electron`, { stdio: 'inherit' });
-} catch (e) {
-  console.error("❌ Failed to install Electron.");
-  process.exit(1);
+// -------- Icon --------
+if (iconPath) {
+  const resolved = path.isAbsolute(iconPath) ? iconPath : path.resolve(process.cwd(), iconPath);
+  if (fs.existsSync(resolved)) {
+    const iconFile = path.basename(resolved);
+    fs.copyFileSync(resolved, path.join(resourcesDir, iconFile));
+    config.modes.window.icon = `/resources/${iconFile}`;
+  }
 }
 
-console.log(`🚀 Building EXE as ${appName}...`);
-const iconOption = iconPath ? `--icon="${iconPath}"` : '';
-try {
-  execSync(`npx electron-packager "${appDir}" "${appName}" --platform=win32 --arch=x64 ${iconOption} --overwrite`, { stdio: 'inherit' });
-} catch (e) {
-  console.error("❌ Failed to package Electron app.");
-  process.exit(1);
+// -------- Check iframe support --------
+function checkIframeSupport(targetUrl) {
+  return new Promise((resolve) => {
+    const client = targetUrl.startsWith("https") ? https : http;
+    const req = client.request(targetUrl, { method: "HEAD" }, (res) => {
+      const xfo = res.headers["x-frame-options"];
+      const csp = res.headers["content-security-policy"];
+      resolve(!(xfo || (csp && csp.includes("frame-ancestors"))));
+    });
+    req.on("error", () => resolve(false));
+    req.end();
+  });
 }
 
-console.log(`✅ App created: ${appName}-win32-x64`);
+// -------- Generate files --------
+(async () => {
+  const iframeOK = await checkIframeSupport(url);
+  fs.writeFileSync(
+    path.join(resourcesDir, "index.html"),
+    iframeOK
+      ? `<!doctype html><html><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>${appName}</title><style>html,body{margin:0;height:100%}iframe{width:100%;height:100%;border:none}</style></head>
+<body><iframe src="${url}" sandbox="allow-forms allow-same-origin allow-scripts allow-popups allow-modals"></iframe></body></html>`
+      : "<!doctype html><html><body></body></html>",
+    "utf8"
+  );
+  if (!iframeOK) config.url = url;
+  fs.writeFileSync(path.join(appDir, "neutralino.config.json"), JSON.stringify(config, null, 2));
+
+  console.log("Scaffold created at:", appDir);
+  process.chdir(appDir);
+
+  execSync("npx @neutralinojs/neu update", { stdio: "inherit" });
+  execSync("npx @neutralinojs/neu build", { stdio: "inherit" });
+
+  const platform =
+    process.platform === "win32" ? "win_x64" :
+    process.platform === "darwin" ? "mac_x64" : "linux_x64";
+  const buildPath = path.join(appDir, `${binaryName}-${platform}`, `${binaryName}${process.platform === "win32" ? ".exe" : ""}`);
+  if (fs.existsSync(buildPath)) {
+    fs.renameSync(buildPath, path.join(appDir, path.basename(buildPath)));
+    fs.rmSync(path.dirname(buildPath), { recursive: true, force: true });
+  }
+
+  console.log("Build complete:", path.join(appDir, path.basename(buildPath)));
+})();

@@ -1,17 +1,18 @@
 {
   "name": "web2app-cli",
   "version": "1.0.1",
-  "description": "CLI to generate Electron .exe apps from any URL",
+  "description": "CLI to generate Neutralino apps from any URL",
   "main": "bin/web2app-cli.js",
   "bin": {
-    "web2app-cli": "./bin/web2app-cli.js"
+    "web2app": "./bin/web2app-cli.js"
   },
   "keywords": [
-    "electron",
+    "neutralino",
     "cli",
     "builder",
-    "packager"
+    "packager",
+    "webapp"
   ],
-  "author": "Your Name",
+  "author": "rxnd0m_dev",
   "license": "MIT"
 }
