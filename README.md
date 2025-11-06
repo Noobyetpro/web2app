@@ -34,13 +34,15 @@ web2app-cli https://discord.gg --icon=icon.ico --name=Discord
 Creates:
 
 ```
-bin/
-└── release/
-    └── discord/
-        ├── discord.exe                ← your app (on Windows)
-        ├── neutralino.config.json
-        └── resources/
-            └── index.html
+📂 web2app
+├── web2app-cli.js         ← CLI script
+├── icon.ico               ← optional icon
+└── bin/
+    └── release/
+        └── myapp/
+            ├──  myapp/
+                 └── your applicaition is here   
+            └── resources/
 ```
 
 Run the executable and browse the target site in its own native window.
@@ -79,12 +81,6 @@ Run the executable and browse the target site in its own native window.
 📂 web2app
 ├── web2app-cli.js         ← CLI script
 ├── icon.ico               ← optional icon
-└── bin/
-    └── release/
-        └── myapp/
-            ├──  myapp/
-                 └── your applicaition is here   
-            └── resources/
 ```
 
 ---
