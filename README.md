@@ -1,4 +1,4 @@
-Sure — here’s the complete **copy-pastable `README.md`**, updated for your current Neutralino-based `web2app-cli` implementation:
+
 
 
 # 🌐 web2app-cli
@@ -6,6 +6,8 @@ Sure — here’s the complete **copy-pastable `README.md`**, updated for your c
 Turn any website into a lightweight **cross-platform desktop app** (Windows / macOS / Linux) with a single command — powered by [NeutralinoJS](https://neutralino.js.org/).
 
 No Electron bloat, no boilerplate. Just pass a URL — and optionally an icon and app name — and get a standalone app instantly.
+
+ALWAYS INCLUDE resources.neu with the executable. DO NOT RUN THE EXECUTABLE WITHOUT THAT FILE IN THE SAME DIRECTORY.
 
 ---
 
