@@ -1,4 +1,4 @@
-Sure — here’s the complete **copy-pastable `README.md`**, updated for your current Neutralino-based `web2app-cli` implementation:
+
 
 
 # 🌐 web2app-cli
@@ -6,6 +6,8 @@ Sure — here’s the complete **copy-pastable `README.md`**, updated for your c
 Turn any website into a lightweight **cross-platform desktop app** (Windows / macOS / Linux) with a single command — powered by [NeutralinoJS](https://neutralino.js.org/).
 
 No Electron bloat, no boilerplate. Just pass a URL — and optionally an icon and app name — and get a standalone app instantly.
+
+ALWAYS INCLUDE resources.neu with the executable. DO NOT RUN THE EXECUTABLE WITHOUT THAT FILE IN THE SAME DIRECTORY.
 
 ---
 
@@ -34,13 +36,15 @@ web2app-cli https://discord.gg --icon=icon.ico --name=Discord
 Creates:
 
 ```
-bin/
-└── release/
-    └── discord/
-        ├── discord.exe                ← your app (on Windows)
-        ├── neutralino.config.json
-        └── resources/
-            └── index.html
+📂 web2app
+├── web2app-cli.js         ← CLI script
+├── icon.ico               ← optional icon
+└── bin/
+    └── release/
+        └── myapp/
+            ├──  myapp/
+                 └── your applicaition is here   
+            └── resources/
 ```
 
 Run the executable and browse the target site in its own native window.
@@ -79,12 +83,6 @@ Run the executable and browse the target site in its own native window.
 📂 web2app
 ├── web2app-cli.js         ← CLI script
 ├── icon.ico               ← optional icon
-└── bin/
-    └── release/
-        └── myapp/
-            ├──  myapp/
-                 └── your applicaition is here   
-            └── resources/
 ```
 
 ---
