@@ -1,125 +1,44 @@
+# web2app-cli
 
+Convert any website into a lightweight cross-platform desktop app (Windows, macOS, Linux) with a single command powered by NeutralinoJS. No Electron bundle and no boilerplate to maintain.
 
+## Requirements
+- Node.js 14+ and npm
+- `npx @neutralinojs/neu` downloads automatically during build
 
-# 🌐 web2app-cli
-
-Turn any website into a lightweight **cross-platform desktop app** (Windows / macOS / Linux) with a single command — powered by [NeutralinoJS](https://neutralino.js.org/).
-
-No Electron bloat, no boilerplate. Just pass a URL — and optionally an icon and app name — and get a standalone app instantly.
-
-ALWAYS INCLUDE resources.neu with the executable. DO NOT RUN THE EXECUTABLE WITHOUT THAT FILE IN THE SAME DIRECTORY.
-
----
-
-## 📦 Installation
-
+## Installation
 ```bash
-npm i -g web2app-cli
-````
+npm install -g web2app-cli
+```
 
-Requires **Node 14 +** and **npm**.
-
----
-
-## 🚀 Usage
-
+## Usage
 ```bash
-web2app-cli <url> [--icon=path/to/icon] [--name=AppName]
+web2app <url> [--icon=/path/to/icon] [--name=AppName]
 ```
 
-### ✅ Example
+**Options**
+- `--icon=` path to an `.ico`, `.icns`, `.png`, or `.svg` file to use as the window icon.
+- `--name=` custom application name; defaults to `WebApp`.
 
+**Example**
 ```bash
-web2app-cli https://discord.gg --icon=icon.ico --name=Discord
+web2app https://example.com --icon=./icon.ico --name=ExampleApp
 ```
 
-Creates:
+## Output
+- Builds into `web2app_build/<appname>/`.
+- The folder contains the generated Neutralino binary and `resources` directory. Keep them together to run the app.
+- If a site blocks iframes, the app loads the URL directly; otherwise it uses an embedded iframe.
 
-```
-📂 web2app
-├── web2app-cli.js         ← CLI script
-├── icon.ico               ← optional icon
-└── bin/
-    └── release/
-        └── myapp/
-            ├──  myapp/
-                 └── your applicaition is here   
-            └── resources/
-```
+## How it works
+- Generates `neutralino.config.json` and a minimal `index.html` pointing at your target URL.
+- Checks if the site allows embedding (iframe); falls back to direct load when blocked.
+- Cleans up nested build folders so the final output sits directly under `web2app_build/<appname>/`.
 
-Run the executable and browse the target site in its own native window.
+## Release Notes
+- Fixed output directory handling.
+- Added pretty print for CLI output.
+- Auto-delete the `webapp/bin` folder to avoid confusion.
 
----
-
-## 🛠 Features
-
-* ⚡ One-liner conversion from URL to desktop app
-* 🖼️ Custom icon support
-
-  * `.ico` for Windows
-  * `.icns` for macOS
-  * `.png` or `.svg` for Linux
-* 🧾 Custom app name via `--name`
-* 🧱 Builds natively with [NeutralinoJS](https://neutralino.js.org/)
-* 🧰 Cross-platform : Windows / macOS / Linux
-* 🧹 Clean folder output under `bin/release/<appname>/`
-
----
-
-## 💡 Notes
-
-* Supply a valid icon for best OS integration
-
-  * Example: `--icon=icon.ico` on Windows
-  * Example: `--icon=icon.icns` on macOS
-* The tool automatically detects if a site supports embedding; if not, it loads it directly.
-* No Electron or Chromium bundle — Neutralino uses the system WebView for tiny builds.
-
----
-
-## 📁 Recommended Project Layout
-
-```
-📂 web2app
-├── web2app-cli.js         ← CLI script
-├── icon.ico               ← optional icon
-```
-
----
-
-## 🧩 Supported Platforms
-
-| Platform | Output | Recommended Icon |
-| -------- | ------ | ---------------- |
-| Windows  | `.exe` | `.ico`           |
-| macOS    | `.app` | `.icns`          |
-| Linux    | binary | `.png` / `.svg`  |
-
----
-
-## 🧑‍💻 Build From Source
-
-```bash
-git clone https://github.com/noobyetpro/web2app-cli.git
-cd web2app-cli
-npm install
-node web2app-cli.js https://example.com --name=Example
-```
-
----
-
-## 📜 License
-
+## License
 MIT
-
----
-
-## 👤 Author
-
-**[@noobyetpro](https://github.com/noobyetpro)**
-Neutralino-based rewrite by contributors.
-
-
----
-
-
