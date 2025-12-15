@@ -1,11 +1,14 @@
 {
   "name": "web2app-cli",
-  "version": "1.0.7",
+  "version": "1.0.8",
   "description": "CLI to generate Neutralino apps from any URL",
   "main": "bin/web2app-cli.js",
   "bin": {
-    "web2app": "./bin/web2app-cli.js"
+    "web2app": "bin/web2app-cli.js"
   },
+  "files": [
+    "bin/"
+  ],
   "keywords": [
     "neutralino",
     "cli",
@@ -13,6 +16,13 @@
     "packager",
     "webapp"
   ],
+  "dependencies": {
+    "extract-zip": "^2.0.1"
+  },
   "author": "rxnd0m_dev",
-  "license": "MIT"
+  "license": "MIT",
+  "type": "module",
+  "publishConfig": {
+    "access": "public"
+  }
 }
