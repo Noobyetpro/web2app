@@ -2,10 +2,12 @@
 
 const fs = require("fs");
 const path = require("path");
+const os = require("os");
 const { spawn, spawnSync } = require("child_process");
 const { URL } = require("url");
 const https = require("https");
 const http = require("http");
+const readline = require("readline");
 const extract = require("extract-zip");
 
 const NEU_BINARIES = [
@@ -20,13 +22,21 @@ const NEU_BINARIES = [
 const NEU_RELEASE_API =
   "https://api.github.com/repos/neutralinojs/neutralinojs/releases/latest";
 const DEFAULT_NEU_TAG = "v6.4.0";
+const isBun = !!(process.versions && process.versions.bun);
 
 function runCommand(command, opts = {}) {
-  const { allowFail = false, stdinData = null, timeoutMs = null } = opts;
+  const {
+    allowFail = false,
+    stdinData = null,
+    timeoutMs = null,
+    cwd = null,
+    quiet = false
+  } = opts;
   return new Promise((resolve, reject) => {
     const p = spawn(command, {
       shell: true,
-      stdio: ["pipe", "pipe", "pipe"]
+      stdio: ["pipe", "pipe", "pipe"],
+      cwd: cwd || undefined
     });
 
     let capturedStdout = "";
@@ -50,15 +60,9 @@ function runCommand(command, opts = {}) {
 
       if (capturedStdout.length < 8000) capturedStdout += text;
 
-      // Auto-suppress noisy art/log lines.
-      if (
-        text.startsWith("neu:") ||
-        text.startsWith("_   _") ||
-        text.includes("INFO") ||
-        text.includes("WARN") ||
-        text.includes("Extracting") ||
-        text.includes("patching")
-      ) return;
+      if (!quiet) {
+        process.stdout.write(text);
+      }
 
       // Auto-confirm common prompts.
       if (
@@ -73,6 +77,13 @@ function runCommand(command, opts = {}) {
     p.stderr.on("data", (buffer) => {
       const text = buffer.toString();
       if (capturedStderr.length < 8000) capturedStderr += text;
+      if (!quiet) {
+        process.stderr.write(text);
+      }
+    });
+
+    p.on("error", (err) => {
+      reject(err);
     });
 
     if (timeoutMs && Number.isFinite(timeoutMs)) {
@@ -149,8 +160,7 @@ function checkIframeSupport(targetUrl) {
   });
 }
 
-function getMissingNeutralinoBinaries(baseDir) {
-  const binDir = path.join(baseDir, "bin");
+function getMissingNeutralinoBinaries(binDir) {
   if (!fs.existsSync(binDir)) return [...NEU_BINARIES];
 
   const present = new Set(fs.readdirSync(binDir));
@@ -241,14 +251,15 @@ function downloadWithRedirect(url, destPath, redirectCount = 0) {
   });
 }
 
-async function downloadNeutralinoDirectly(baseDir) {
+async function downloadNeutralinoDirectly(destBinDir) {
   const forcedTag =
     process.env.WEB2APP_NEU_TAG || process.env.NEUTRALINO_TAG || null;
   const tag = normalizeNeuTag(forcedTag || (await fetchLatestNeutralinoTag()));
   const url = `https://github.com/neutralinojs/neutralinojs/releases/download/${tag}/neutralinojs-${tag}.zip`;
+  const baseDir = path.dirname(destBinDir);
   const tmpDir = path.join(baseDir, ".neu_download");
   const zipPath = path.join(tmpDir, "neutralinojs.zip");
-  const binDir = path.join(baseDir, "bin");
+  const binDir = destBinDir;
 
   fs.rmSync(tmpDir, { recursive: true, force: true });
   fs.rmSync(binDir, { recursive: true, force: true });
@@ -274,7 +285,7 @@ async function downloadNeutralinoDirectly(baseDir) {
     } catch {}
   }
 
-  const missingAfter = getMissingNeutralinoBinaries(baseDir);
+  const missingAfter = getMissingNeutralinoBinaries(binDir);
   if (missingAfter.length) {
     throw new Error(
       `Direct Neutralino download incomplete (missing: ${missingAfter.join(
@@ -284,44 +295,57 @@ async function downloadNeutralinoDirectly(baseDir) {
   }
 }
 
-async function ensureNeutralinoBinaries(neuCmd, baseDir) {
-  const missingBefore = getMissingNeutralinoBinaries(baseDir);
-  if (missingBefore.length === 0) {
-    console.log("+ Found cached Neutralino runtimes in ./bin");
-    return;
+function getSharedNeuCacheDir() {
+  if (process.env.APPDATA) {
+    return path.join(process.env.APPDATA, "web2app", "NEU");
   }
 
-  const preferDirectDownload =
-    process.env.WEB2APP_NEU_DIRECT === "1" ||
-    process.env.WEB2APP_NEU_DIRECT === "true";
-
-  let triedNeuUpdate = false;
-  if (!preferDirectDownload) {
-    console.log("+ Downloading Neutralino runtimes via neu...");
-    triedNeuUpdate = true;
+  // Prefer a shared location on Linux (/usr/local/share/web2app/NEU) when writable.
+  if (process.platform === "linux") {
+    const usrDir = "/usr/local/share/web2app/NEU";
     try {
-      await runCommand(`${neuCmd} update --latest`, {
-        stdinData: "y\n",
-        timeoutMs: 5 * 60 * 1000
-      });
-    } catch (err) {
-      console.warn(
-        `! neu update failed: ${err.message.trim()}. Falling back to direct download.`
-      );
-    }
+      fs.mkdirSync(usrDir, { recursive: true });
+      fs.accessSync(usrDir, fs.constants.W_OK);
+      return usrDir;
+    } catch {}
   }
 
-  const missingAfterNeu = getMissingNeutralinoBinaries(baseDir);
-  if (preferDirectDownload || missingAfterNeu.length) {
-    if (triedNeuUpdate && !preferDirectDownload && !missingAfterNeu.length) {
-      console.warn(
-        "! neu update returned success but binaries are still missing; retrying with direct download."
-      );
-    }
+  return path.join(os.homedir(), ".web2app", "NEU");
+}
 
-    console.log("+ Downloading Neutralino runtimes directly from GitHub...");
-    await downloadNeutralinoDirectly(baseDir);
+function copySharedBinToProject(sharedBinDir, projectBinDir) {
+  fs.rmSync(projectBinDir, { recursive: true, force: true });
+  fs.mkdirSync(projectBinDir, { recursive: true });
+
+  for (const file of NEU_BINARIES) {
+    const src = path.join(sharedBinDir, file);
+    if (!fs.existsSync(src)) {
+      throw new Error(`Shared Neutralino runtime missing: ${file}`);
+    }
+    const dest = path.join(projectBinDir, file);
+    fs.copyFileSync(src, dest);
+    if (process.platform !== "win32" && !file.endsWith(".exe")) {
+      fs.chmodSync(dest, 0o755);
+    }
   }
+}
+
+async function ensureNeutralinoBinaries(neuCmd, baseDir) {
+  const sharedBin = getSharedNeuCacheDir();
+  fs.mkdirSync(sharedBin, { recursive: true });
+
+  console.log(`+ Neutralino runtimes cache: ${sharedBin}`);
+
+  const missingShared = getMissingNeutralinoBinaries(sharedBin);
+  if (missingShared.length === 0) {
+    console.log("+ Found cached Neutralino runtimes in shared cache");
+  } else {
+    console.log("+ Downloading Neutralino runtimes into shared cache...");
+    await downloadNeutralinoDirectly(sharedBin);
+  }
+
+  const projectBin = path.join(baseDir, "bin");
+  copySharedBinToProject(sharedBin, projectBin);
 }
 
 function getNeuVersion(cmdPath) {
@@ -394,6 +418,13 @@ function getNeuVersion(cmdPath) {
   return null;
 }
 
+function getSharedNeuCliDir() {
+  if (process.platform === "win32" && process.env.APPDATA) {
+    return path.join(process.env.APPDATA, "web2app", "neu-cli");
+  }
+  return path.join(os.homedir(), ".web2app", "neu-cli");
+}
+
 function findNeutralinoCommand() {
   // Fast path: if `neu` is already on PATH, use it and skip further scanning/installation.
   const shellVersion = getNeuVersion("neu");
@@ -401,6 +432,14 @@ function findNeutralinoCommand() {
     console.log(`+ Using Neutralino CLI (${shellVersion}): neu`);
     return "neu";
   }
+
+  const sharedNeuPrefix = getSharedNeuCliDir();
+  const sharedNeuBin = path.join(
+    sharedNeuPrefix,
+    "node_modules",
+    ".bin",
+    process.platform === "win32" ? "neu.cmd" : "neu"
+  );
 
   const localNeu = path.join(
     __dirname,
@@ -421,7 +460,8 @@ function findNeutralinoCommand() {
       exeName, // PATH lookup
       process.platform === "win32" && process.env.APPDATA
         ? path.join(process.env.APPDATA, "npm", "neu.cmd")
-        : null
+        : null,
+      sharedNeuBin
     ].filter(Boolean)
   );
 
@@ -481,9 +521,30 @@ async function resolveNeutralinoCommand() {
   const found = findNeutralinoCommand();
   if (found) return found;
 
+  if (isBun) {
+    console.log("+ Neutralino CLI not detected; using bun x @neutralinojs/neu");
+    return "bun x @neutralinojs/neu";
+  }
+
   const npmCmd = process.platform === "win32" ? "npm.cmd" : "npm";
-  console.log("+ Neutralino CLI not detected; installing globally...");
-  await runCommand(`${npmCmd} install -g @neutralinojs/neu`);
+  const sharedPrefix = getSharedNeuCliDir();
+  fs.mkdirSync(sharedPrefix, { recursive: true });
+
+  console.log("+ Neutralino CLI not detected; installing to shared cache...");
+  try {
+    await runCommand(
+      `${npmCmd} install --no-fund --no-audit --prefix "${sharedPrefix}" @neutralinojs/neu`,
+      { timeoutMs: 5 * 60 * 1000 }
+    );
+  } catch (err) {
+    console.warn(
+      `! Failed to install Neutralino CLI in shared cache: ${err.message.trim()}`
+    );
+    console.log("+ Retrying with global install...");
+    await runCommand(`${npmCmd} install -g @neutralinojs/neu`, {
+      timeoutMs: 5 * 60 * 1000
+    });
+  }
 
   const installed = findNeutralinoCommand();
   if (installed) return installed;
@@ -513,82 +574,263 @@ function listExecutables(baseDir, binaryName) {
   return result;
 }
 
-function printUsage() {
-  console.log("Usage: web2app <url> [--icon=/path/to/icon] [--name=appName]");
+function slugifyName(name) {
+  const trimmed = (name || "").trim();
+  if (!trimmed) return "web-app";
+  return trimmed
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "") || "web-app";
 }
 
-const args = process.argv.slice(2);
-if (!args[0] || args.includes("--help") || args.includes("-h")) {
-  printUsage();
-  process.exit(1);
-}
+function normalizeUrlInput(raw) {
+  if (!raw) return null;
+  let candidate = raw.trim();
+  if (!candidate) return null;
 
-let url = args[0].startsWith("http") ? args[0] : "https://" + args[0];
-let iconPath = null;
-let appName = "WebApp";
+  if (!/^https?:\/\//i.test(candidate)) {
+    candidate = "https://" + candidate;
+  }
 
-for (const a of args.slice(1)) {
-  if (a.startsWith("--icon=")) iconPath = a.split("=")[1];
-  if (a.startsWith("--name=")) {
-    appName = a.split("=")[1].replace(/[^a-zA-Z0-9_-]/g, "") || appName;
+  try {
+    new URL(candidate);
+    return candidate;
+  } catch {
+    return null;
   }
 }
 
-const binaryName = appName.replace(/\s+/g, "-").toLowerCase();
-
-try {
-  new URL(url);
-} catch {
-  printUsage();
-  process.exit(1);
+function sanitizeVersion(input, fallback = "0.1.0") {
+  const cleaned = (input || "").trim() || fallback;
+  const semver = cleaned.match(/\d+\.\d+\.\d+(?:[-.0-9A-Za-z]*)?/);
+  return semver ? semver[0] : fallback;
 }
 
-const cwd = process.cwd();
-const appDir = path.join(cwd, "web2app_build");
-const resourcesDir = path.join(appDir, "resources");
+function sanitizeAppId(raw, binaryName) {
+  const fallback = `com.web2app.${binaryName}`;
+  if (!raw) return fallback;
+  const stripped = raw
+    .toLowerCase()
+    .replace(/[^a-z0-9.]+/g, ".")
+    .replace(/\.+/g, ".")
+    .replace(/^\.+|\.+$/g, "");
 
-fs.mkdirSync(resourcesDir, { recursive: true });
+  if (!stripped) return fallback;
+  if (!stripped.includes(".")) return `${stripped}.${binaryName}`;
+  return stripped;
+}
 
-const config = {
-  applicationId: `js.neutralino.${binaryName}`,
-  version: "1.0.0",
-  name: appName,
-  defaultMode: "window",
-  url: "/",
-  documentRoot: "/resources/",
-  enableServer: true,
-  enableNativeAPI: false,
-  modes: {
-    window: { title: appName, width: 1000, height: 800 }
-  },
-  cli: {
-    resourcesPath: "/resources/",
-    distributionPath: ".",
+function parseWindowSize(input, fallback) {
+  if (!input) return fallback;
+  const parts = input
+    .toLowerCase()
+    .replace(/x/, " ")
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((p) => parseInt(p, 10));
+
+  if (parts.length === 2 && parts.every((n) => Number.isFinite(n) && n > 300)) {
+    return { width: parts[0], height: parts[1] };
+  }
+  return fallback;
+}
+
+function escapeHtml(str) {
+  return (str || "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+function createPrompt() {
+  const rl = readline.createInterface({
+    input: process.stdin,
+    output: process.stdout
+  });
+
+  rl.on("SIGINT", () => {
+    console.log("\n! Exit requested. No files were created.");
+    process.exit(1);
+  });
+
+  const ask = (q) =>
+    new Promise((resolve) => rl.question(q, (answer) => resolve(answer.trim())));
+
+  return { ask, close: () => rl.close() };
+}
+
+async function promptForBlueprint() {
+  const frame = [
+    "",
+    "+----------------------------------------------------------+",
+    "|  web2app quick setup                                    |",
+    "|  Wrap any site into a desktop app in a few questions.    |",
+    "|  Press Enter to accept suggestions or type your own.     |",
+    "|  Tip: hit Ctrl+C any time to cancel.                     |",
+    "+----------------------------------------------------------+",
+    ""
+  ];
+  console.log(frame.join("\n"));
+  console.log("Let's get your app ready. Values in [brackets] are defaults.\n");
+
+  const { ask, close } = createPrompt();
+
+  const defaultName = "My Web App";
+  const defaultUrl = "https://example.com";
+  const defaultVersion = "0.1.0";
+  const defaultSize = { width: 1100, height: 820 };
+
+  const appName =
+    (await ask(`[ #1 ] Name for this app [${defaultName}]: `)) || defaultName;
+
+  let targetUrl = null;
+  let attempts = 0;
+  while (!targetUrl && attempts < 3) {
+    attempts += 1;
+    const candidate =
+      (await ask(
+        `[ #2 ] Destination URL to wrap (ex: https://app.yoursite.com) [${defaultUrl}]: `
+      )) || defaultUrl;
+    targetUrl = normalizeUrlInput(candidate);
+    if (!targetUrl) {
+      console.log(
+        "  ↳ That doesn't look like a full URL (try https://example.com). Please try again."
+      );
+    }
+  }
+
+  if (!targetUrl) {
+    close();
+    throw new Error("A valid URL is required to continue.");
+  }
+
+  const description =
+    (await ask(
+      "[ #3 ] One-line note for yourself (shows up in metadata) [optional]: "
+    )) || "";
+
+  const version = sanitizeVersion(
+    (await ask(`[ #4 ] Version stamp [${defaultVersion}]: `)) ||
+      defaultVersion,
+    defaultVersion
+  );
+
+  const binaryName = slugifyName(appName);
+  const applicationId = sanitizeAppId(
+    await ask(`[ #5 ] Bundle identifier [com.web2app.${binaryName}]: `),
     binaryName
-  }
-};
+  );
 
-if (iconPath) {
-  const resolved = path.isAbsolute(iconPath)
-    ? iconPath
-    : path.resolve(cwd, iconPath);
+  const iconPath =
+    (await ask(
+      "[ #6 ] Icon file (path to .ico/.icns/.png/.svg) [blank to skip]: "
+    )) || null;
 
-  if (fs.existsSync(resolved)) {
-    const file = path.basename(resolved);
-    fs.copyFileSync(resolved, path.join(resourcesDir, file));
-    config.modes.window.icon = `/resources/${file}`;
-  }
+  const sizeInput = await ask(
+    `[ #7 ] Window size WIDTHxHEIGHT [${defaultSize.width}x${defaultSize.height}]: `
+  );
+  const size = parseWindowSize(sizeInput, defaultSize);
+
+  close();
+
+  console.log("\nSetup summary:");
+  console.log(`- name ........... ${appName}`);
+  console.log(`- url ............ ${targetUrl}`);
+  console.log(`- version ........ ${version}`);
+  console.log(`- bundle id ...... ${applicationId}`);
+  console.log(
+    `- icon ........... ${iconPath ? iconPath : "(none provided)"}`
+  );
+  console.log(`- window ......... ${size.width} x ${size.height}`);
+  if (description) console.log(`- note ........... ${description}`);
+  console.log("");
+
+  return {
+    appName,
+    url: targetUrl,
+    version,
+    applicationId,
+    iconPath,
+    windowSize: size,
+    description,
+    binaryName
+  };
 }
 
 (async () => {
+  const cwd = process.cwd();
+  const appDir = path.join(cwd, "web2app_build");
+  const resourcesDir = path.join(appDir, "resources");
+
+  const {
+    appName,
+    url,
+    version,
+    applicationId,
+    iconPath,
+    windowSize,
+    description,
+    binaryName
+  } = await promptForBlueprint();
+
+  fs.mkdirSync(resourcesDir, { recursive: true });
+
+  const config = {
+    applicationId,
+    version,
+    name: appName,
+    defaultMode: "window",
+    url: "/",
+    documentRoot: "/resources/",
+    enableServer: true,
+    enableNativeAPI: false,
+    modes: {
+      window: {
+        title: appName,
+        width: windowSize.width,
+        height: windowSize.height
+      }
+    },
+    cli: {
+      resourcesPath: "/resources/",
+      distributionPath: ".",
+      binaryName
+    }
+  };
+
+  if (iconPath) {
+    const resolved = path.isAbsolute(iconPath)
+      ? iconPath
+      : path.resolve(cwd, iconPath);
+
+    if (fs.existsSync(resolved)) {
+      const file = path.basename(resolved);
+      fs.copyFileSync(resolved, path.join(resourcesDir, file));
+      config.modes.window.icon = `/resources/${file}`;
+    } else {
+      console.warn(`! Icon not found at ${resolved}; continuing without it.`);
+    }
+  }
+
+  if (description) {
+    config.meta = { description };
+  }
+
   console.log("+ Creating app structure...");
 
   const iframeOK = await checkIframeSupport(url);
+  const metaDescription = description
+    ? `<meta name="description" content="${escapeHtml(description)}"/>`
+    : "";
 
   fs.writeFileSync(
     path.join(resourcesDir, "index.html"),
     iframeOK
-      ? `<!doctype html><html><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/><title>${appName}</title><style>html,body{margin:0;height:100%}iframe{width:100%;height:100%;border:0}</style></head><body><iframe src="${url}" sandbox="allow-forms allow-same-origin allow-scripts allow-popups allow-modals"></iframe></body></html>`
+      ? `<!doctype html><html><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>${metaDescription}<title>${escapeHtml(appName)}</title><style>html,body{margin:0;height:100%}iframe{width:100%;height:100%;border:0}</style></head><body><iframe src="${escapeHtml(
+          url
+        )}" sandbox="allow-forms allow-same-origin allow-scripts allow-popups allow-modals"></iframe></body></html>`
       : "<!doctype html><html><body></body></html>",
     "utf8"
   );
@@ -602,12 +844,18 @@ if (iconPath) {
 
   process.chdir(appDir);
 
+  console.log("+ Resolving Neutralino CLI...");
   const neuCmd = await resolveNeutralinoCommand();
 
+  console.log("+ Ensuring Neutralino runtimes...");
   await ensureNeutralinoBinaries(neuCmd, appDir);
 
-  console.log("+ Building executables...");
-  await runCommand(`${neuCmd} build --release --embed-resources`);
+  console.log(`+ Running neu build from ${appDir} ...`);
+  // Suppress verbose neu build logs; will still bubble up on failure.
+  await runCommand(`${neuCmd} build --release --embed-resources`, {
+    cwd: appDir,
+    quiet: true
+  });
 
   const outputDir = path.join(appDir, binaryName);
   const { executables, archives } = listExecutables(appDir, binaryName);
@@ -615,6 +863,19 @@ if (iconPath) {
   console.log("+ Build done.");
 
   console.log(`+ Output directory: ${outputDir}`);
+  if (executables.length) {
+    console.log("+ Executables generated:");
+    executables.forEach((e) => console.log(`  - ${e}`));
+  }
+  if (archives.length) {
+    console.log("+ Archives:");
+    archives.forEach((a) => console.log(`  - ${a}`));
+  }
+  if (!executables.length && !archives.length) {
+    throw new Error(
+      "Neutralino build finished without outputs. Check the build logs above for errors."
+    );
+  }
 
   const IuseArchBtw = [
     { path: path.join(appDir, `${binaryName}-release.zip`), label: "release zip" },
@@ -631,4 +892,7 @@ if (iconPath) {
       }
     }
   }
-})();
+})().catch((err) => {
+  console.error(`! ${err.message}`);
+  process.exit(1);
+});

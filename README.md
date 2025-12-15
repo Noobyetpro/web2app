@@ -12,17 +12,16 @@ npm install -g web2app-cli
 ```
 
 ## Usage
+Run the interactive console and follow the prompts:
 ```bash
-web2app <url> [--icon=/path/to/icon] [--name=AppName]
+web2app
 ```
 
-**Options**
-- `--icon=` path to an `.ico`, `.icns`, `.png`, or `.svg` file to use as the window icon.
-- `--name=` custom application name; defaults to `WebApp`.
+You’ll be asked for a app name, destination URL, optional metadata, bundle identifier, icon path, and window size. Press **Enter** to accept the suggested value shown in square brackets.
 
-**Example**
+If you prefer Bun:
 ```bash
-web2app https://example.com --icon=./icon.ico --name=ExampleApp
+bun ./bin/web2app-cli.cjs
 ```
 
 ## Output
@@ -40,9 +39,7 @@ web2app https://example.com --icon=./icon.ico --name=ExampleApp
 - Installs the Neutralino CLI globally only when no existing installation is found, so it can be reused across projects.
 
 ## Release Notes
-- Automatic scan for an existing Neutralino CLI (`NEU_BIN`, local `node_modules/.bin/neu`, PATH, npm global bin) before installing globally.
-- Builds release executables for all platforms with embedded resources (no `resources.neu` alongside the binary); cleans bin/resources/release zip after build.
-- Falls back to downloading Neutralino runtimes directly from GitHub if `neu update --latest` fails (`WEB2APP_NEU_DIRECT=1` to force).
-
+- Saves NEU libraries in appdata on windows and usr on linux (sorry mac users)
+- add interactive setup
 ## License
 MIT
