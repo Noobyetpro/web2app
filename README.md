@@ -39,7 +39,7 @@ bun ./bin/web2app-cli.cjs
 - Installs the Neutralino CLI globally only when no existing installation is found, so it can be reused across projects.
 
 ## Release Notes
-- Saves NEU libraries in appdata on windows and usr on linux (sorry mac users)
-- add interactive setup
+ - Uses bun by default (npm i -g bun if not installed)
+ - Added --no-bun tag
 ## License
 MIT

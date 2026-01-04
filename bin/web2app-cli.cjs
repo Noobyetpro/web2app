@@ -23,6 +23,9 @@ const NEU_RELEASE_API =
   "https://api.github.com/repos/neutralinojs/neutralinojs/releases/latest";
 const DEFAULT_NEU_TAG = "v6.4.0";
 const isBun = !!(process.versions && process.versions.bun);
+const cliOptions = {
+  noBun: process.argv.includes("--no-bun")
+};
 
 function runCommand(command, opts = {}) {
   const {
@@ -517,13 +520,49 @@ function findNeutralinoCommand() {
   return null;
 }
 
-async function resolveNeutralinoCommand() {
+function bunAvailable() {
+  if (isBun) return true;
+  const cmd = process.platform === "win32" ? "bun.exe" : "bun";
+  try {
+    const res = spawnSync(cmd, ["--version"], { encoding: "utf8", stdio: "pipe" });
+    return res.status === 0 && !res.error;
+  } catch {
+    return false;
+  }
+}
+
+async function ensureBunInstalled() {
+  if (bunAvailable()) return true;
+
+  const npmCmd = process.platform === "win32" ? "npm.cmd" : "npm";
+  console.log("+ Bun not detected; installing via npm -g bun ...");
+  try {
+    await runCommand(`${npmCmd} install -g bun`, { timeoutMs: 5 * 60 * 1000 });
+  } catch (err) {
+    console.warn(`! Failed to install Bun globally: ${err.message.trim()}`);
+    return false;
+  }
+
+  if (bunAvailable()) {
+    console.log("+ Bun installed and available.");
+    return true;
+  }
+
+  console.warn("! Bun installation attempted but still not available.");
+  return false;
+}
+
+async function resolveNeutralinoCommand({ preferBun = true } = {}) {
   const found = findNeutralinoCommand();
   if (found) return found;
 
-  if (isBun) {
-    console.log("+ Neutralino CLI not detected; using bun x @neutralinojs/neu");
-    return "bun x @neutralinojs/neu";
+  if (preferBun) {
+    const bunReady = await ensureBunInstalled();
+    if (bunReady) {
+      console.log("+ Neutralino CLI not detected; using bun x @neutralinojs/neu");
+      return "bun x @neutralinojs/neu";
+    }
+    console.log("+ Falling back to npm for Neutralino CLI");
   }
 
   const npmCmd = process.platform === "win32" ? "npm.cmd" : "npm";
@@ -845,7 +884,10 @@ async function promptForBlueprint() {
   process.chdir(appDir);
 
   console.log("+ Resolving Neutralino CLI...");
-  const neuCmd = await resolveNeutralinoCommand();
+  if (cliOptions.noBun) {
+    console.log("+ --no-bun flag detected; disabling Bun for Neutralino CLI resolution.");
+  }
+  const neuCmd = await resolveNeutralinoCommand({ preferBun: !cliOptions.noBun });
 
   console.log("+ Ensuring Neutralino runtimes...");
   await ensureNeutralinoBinaries(neuCmd, appDir);
